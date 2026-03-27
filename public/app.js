@@ -353,7 +353,7 @@ function showRoutineModal(routineId = null) {
   const modal = document.getElementById("modal");
   const backdrop = document.getElementById("modal-backdrop");
 
-  db.routines.get(routineId).then((r) => {
+  (routineId ? db.routines.get(routineId) : Promise.resolve(null)).then((r) => {
     modal.innerHTML = `
       <div class="modal-title">${routineId ? "Edit Routine" : "New Routine"}</div>
       <div class="field"><label>Name</label><input type="text" id="m-routine-name" value="${esc(r ? r.name : "")}"></div>
