@@ -169,6 +169,9 @@ async function renderWorkout(el) {
   const exes = activeSession.exercises;
   const done = exes.filter((e) => e.completed).length;
 
+  const allExercises = await db.exercises.list();
+  const notesById = Object.fromEntries(allExercises.map((e) => [e.id, e.notes || ""]));
+
   let html = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div>
@@ -180,7 +183,7 @@ async function renderWorkout(el) {
     <div id="ex-list">`;
 
   for (const ex of exes) {
-    html += renderExRow(ex);
+    html += renderExRow(ex, notesById[ex.exerciseId] || "");
   }
 
   html += `</div>
@@ -191,13 +194,14 @@ async function renderWorkout(el) {
   el.innerHTML = html;
 }
 
-function renderExRow(ex) {
+function renderExRow(ex, notes = "") {
   return `<div class="ex-row" id="ex-${ex.id}">
     <button class="ex-check ${ex.completed ? "done" : ""}"
       onclick="app.toggleExercise(${ex.id})">${ex.completed ? "✓" : ""}</button>
     <div>
       <div class="ex-name">${esc(ex.exerciseName)}</div>
       <div class="ex-meta" id="meta-${ex.id}">${ex.sets}×${ex.reps} @ ${ex.weight} lbs</div>
+      ${notes ? `<div class="muted" style="font-size:.78rem;margin-top:2px">${esc(notes)}</div>` : ""}
     </div>
     <button class="ex-edit-btn" onclick="app.toggleInlineEdit(${ex.id})">Edit</button>
   </div>
@@ -303,7 +307,7 @@ function showAddExerciseToSession() {
     const saved = await db.sessionExercises.get(id);
     activeSession.exercises.push(saved);
     const list = document.getElementById("ex-list");
-    list.insertAdjacentHTML("beforeend", renderExRow(saved));
+    list.insertAdjacentHTML("beforeend", renderExRow(saved, ex.notes || ""));
   });
 }
 
@@ -389,6 +393,7 @@ async function renderRoutines(el) {
         <div>
           <div style="font-weight:600">${esc(e.name)}</div>
           ${e.muscleGroup ? `<div class="muted" style="font-size:.8rem">${esc(e.muscleGroup)}</div>` : ""}
+          ${e.notes ? `<div class="muted" style="font-size:.8rem;margin-top:2px">${esc(e.notes)}</div>` : ""}
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-ghost btn-sm" onclick="app.showExerciseModal(${e.id})">Edit</button>
@@ -461,6 +466,7 @@ function showExerciseModal(exerciseId = null) {
       <div class="modal-title">${exerciseId ? "Edit Exercise" : "New Exercise"}</div>
       <div class="field"><label>Name</label><input type="text" id="m-ex-name" value="${esc(e ? e.name : "")}"></div>
       <div class="field"><label>Muscle group (optional)</label><input type="text" id="m-ex-muscle" value="${esc(e ? e.muscleGroup || "" : "")}"></div>
+      <div class="field"><label>Notes (optional)</label><textarea id="m-ex-notes" placeholder="Form tips, cues, equipment notes…">${esc(e ? e.notes || "" : "")}</textarea></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="app.saveExercise()">Save</button>
         <button class="btn btn-ghost" onclick="app.closeModal()">Cancel</button>
@@ -473,8 +479,9 @@ async function saveExercise() {
   const name = document.getElementById("m-ex-name").value.trim();
   if (!name) { toast("Name required"); return; }
   const muscleGroup = document.getElementById("m-ex-muscle").value.trim();
+  const notes = document.getElementById("m-ex-notes").value.trim();
   try {
-    const record = { name, muscleGroup };
+    const record = { name, muscleGroup, notes };
     if (editingExerciseId) { record.id = editingExerciseId; }
     await db.exercises.save(record);
     closeModal();
