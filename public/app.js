@@ -309,6 +309,21 @@ function showAddExerciseToSession() {
 
 // ─── Routines ─────────────────────────────────────────────────────────────────
 
+const expandedRoutines = new Set();
+
+function toggleRoutine(id) {
+  if (expandedRoutines.has(id)) {
+    expandedRoutines.delete(id);
+  } else {
+    expandedRoutines.add(id);
+  }
+  const body    = document.getElementById(`routine-body-${id}`);
+  const chevron = document.getElementById(`routine-chevron-${id}`);
+  const open    = expandedRoutines.has(id);
+  body.style.display    = open ? "block" : "none";
+  chevron.style.transform = open ? "rotate(180deg)" : "";
+}
+
 async function renderRoutines(el) {
   const list = await db.routines.list();
 
@@ -320,30 +335,41 @@ async function renderRoutines(el) {
     for (const r of list) {
       const exes = await db.routineExercises.listForRoutine(r.id);
       exes.sort((a, b) => a.orderIndex - b.orderIndex);
-      html += `<div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div class="card-title">${esc(r.name)}</div>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost btn-sm" onclick="app.showRoutineModal(${r.id})">Edit</button>
+      const open = expandedRoutines.has(r.id);
+      html += `<div class="card" style="padding-bottom:${open ? "var(--gap)" : "0"}">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding-bottom:${open ? "var(--gap)" : "0"}"
+             onclick="app.toggleRoutine(${r.id})">
+          <div>
+            <div class="card-title" style="margin:0">${esc(r.name)}</div>
+            ${r.notes && !open ? `<div class="muted" style="font-size:.8rem">${esc(r.notes)}</div>` : ""}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="muted" style="font-size:.8rem">${exes.length} exercise${exes.length !== 1 ? "s" : ""}</span>
+            <span id="routine-chevron-${r.id}" style="color:var(--muted);transition:transform .2s;display:inline-block${open ? ";transform:rotate(180deg)" : ""}">▾</span>
+          </div>
+        </div>
+        <div id="routine-body-${r.id}" style="display:${open ? "block" : "none"}">
+          ${r.notes ? `<div class="muted" style="font-size:.85rem;margin-bottom:10px">${esc(r.notes)}</div>` : ""}
+          <div style="margin-bottom:10px;border-top:1px solid var(--border)">
+            ${exes.length === 0
+    ? "<div class='muted' style='font-size:.85rem;padding:10px 0'>No exercises yet</div>"
+    : exes.map((e) => `<div style="padding:8px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px">
+                <div>
+                  <div>${esc(e.exerciseName)}</div>
+                  <div class="muted" style="font-size:.8rem">${e.defaultSets}×${e.defaultReps} @ ${e.defaultWeight} lbs</div>
+                </div>
+                <div style="display:flex;gap:6px;flex-shrink:0">
+                  <button class="btn btn-ghost btn-sm" onclick="app.showRoutineExerciseModal(${e.id})">Edit</button>
+                  <button class="btn btn-danger btn-sm" onclick="app.removeRoutineExercise(${e.id})">✕</button>
+                </div>
+              </div>`).join("")}
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" onclick="app.showAddExerciseToRoutine(${r.id})">+ Add Exercise</button>
+            <button class="btn btn-ghost btn-sm" onclick="app.showRoutineModal(${r.id})">Edit Routine</button>
             <button class="btn btn-danger btn-sm" onclick="app.deleteRoutine(${r.id})">Delete</button>
           </div>
         </div>
-        ${r.notes ? `<div class="muted" style="font-size:.85rem;margin-bottom:8px">${esc(r.notes)}</div>` : ""}
-        <div style="margin-bottom:10px">
-          ${exes.length === 0
-    ? "<span class='muted' style='font-size:.85rem'>No exercises yet</span>"
-    : exes.map((e) => `<div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px">
-              <div>
-                <div>${esc(e.exerciseName)}</div>
-                <div class="muted" style="font-size:.8rem">${e.defaultSets}×${e.defaultReps} @ ${e.defaultWeight} lbs</div>
-              </div>
-              <div style="display:flex;gap:6px;flex-shrink:0">
-                <button class="btn btn-ghost btn-sm" onclick="app.showRoutineExerciseModal(${e.id})">Edit</button>
-                <button class="btn btn-danger btn-sm" onclick="app.removeRoutineExercise(${e.id})">✕</button>
-              </div>
-            </div>`).join("")}
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="app.showAddExerciseToRoutine(${r.id})">+ Add Exercise</button>
       </div>`;
     }
   }
@@ -1017,6 +1043,7 @@ window.app = {
   saveInlineEdit,
   removeFromSession,
   showAddExerciseToSession,
+  toggleRoutine,
   showRoutineModal,
   showAddExerciseDefaults,
   confirmAddExerciseToRoutine,
