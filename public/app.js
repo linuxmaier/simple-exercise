@@ -332,9 +332,15 @@ async function renderRoutines(el) {
         <div style="margin-bottom:10px">
           ${exes.length === 0
     ? "<span class='muted' style='font-size:.85rem'>No exercises yet</span>"
-    : exes.map((e) => `<div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
-              <span>${esc(e.exerciseName)}</span>
-              <span class="muted" style="font-size:.85rem">${e.defaultSets}×${e.defaultReps} @ ${e.defaultWeight} lbs</span>
+    : exes.map((e) => `<div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <div>
+                <div>${esc(e.exerciseName)}</div>
+                <div class="muted" style="font-size:.8rem">${e.defaultSets}×${e.defaultReps} @ ${e.defaultWeight} lbs</div>
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0">
+                <button class="btn btn-ghost btn-sm" onclick="app.showRoutineExerciseModal(${e.id})">Edit</button>
+                <button class="btn btn-danger btn-sm" onclick="app.removeRoutineExercise(${e.id})">✕</button>
+              </div>
             </div>`).join("")}
         </div>
         <button class="btn btn-ghost btn-sm" onclick="app.showAddExerciseToRoutine(${r.id})">+ Add Exercise</button>
@@ -459,6 +465,57 @@ async function saveExercise() {
 async function deleteExercise(id) {
   if (!confirm("Delete this exercise? Its history will be lost.")) { return; }
   await db.exercises.delete(id);
+  navigate("routines");
+}
+
+// Edit routine exercise defaults
+
+function showRoutineExerciseModal(routineExerciseId) {
+  const modal = document.getElementById("modal");
+  const backdrop = document.getElementById("modal-backdrop");
+
+  db.routineExercises.get(routineExerciseId).then((re) => {
+    modal.innerHTML = `
+      <div class="modal-title">${esc(re.exerciseName)}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+        <div class="field">
+          <label>Sets</label>
+          <input type="number" id="m-re-sets" value="${re.defaultSets}" min="1">
+        </div>
+        <div class="field">
+          <label>Reps</label>
+          <input type="number" id="m-re-reps" value="${re.defaultReps}" min="1">
+        </div>
+        <div class="field">
+          <label>Weight (lbs)</label>
+          <input type="number" id="m-re-weight" value="${re.defaultWeight}" min="0" step="2.5">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="app.saveRoutineExercise(${routineExerciseId})">Save</button>
+        <button class="btn btn-ghost" onclick="app.closeModal()">Cancel</button>
+      </div>`;
+    backdrop.classList.remove("hidden");
+  });
+}
+
+async function saveRoutineExercise(routineExerciseId) {
+  try {
+    const re = await db.routineExercises.get(routineExerciseId);
+    re.defaultSets   = parseInt(document.getElementById("m-re-sets").value, 10)   || re.defaultSets;
+    re.defaultReps   = parseInt(document.getElementById("m-re-reps").value, 10)   || re.defaultReps;
+    re.defaultWeight = parseFloat(document.getElementById("m-re-weight").value)    ?? re.defaultWeight;
+    await db.routineExercises.save(re);
+    closeModal();
+    navigate("routines");
+  } catch (err) {
+    toast("Error saving: " + err.message);
+  }
+}
+
+async function removeRoutineExercise(routineExerciseId) {
+  if (!confirm("Remove this exercise from the routine?")) { return; }
+  await db.routineExercises.delete(routineExerciseId);
   navigate("routines");
 }
 
@@ -926,6 +983,9 @@ window.app = {
   removeFromSession,
   showAddExerciseToSession,
   showRoutineModal,
+  showRoutineExerciseModal,
+  saveRoutineExercise,
+  removeRoutineExercise,
   showExerciseModal,
   saveExercise,
   deleteExercise,
