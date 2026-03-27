@@ -449,7 +449,10 @@ async function saveExercise() {
     closeModal();
     navigate("routines");
   } catch (err) {
-    toast("Error saving exercise: " + err.message);
+    const msg = err.name === "ConstraintError"
+      ? "An exercise with that name already exists"
+      : "Error saving exercise: " + err.message;
+    toast(msg);
   }
 }
 
@@ -515,18 +518,24 @@ async function showExercisePicker(callback) {
 
 async function pickerSelect(exerciseId) {
   const ex = await db.exercises.get(exerciseId);
+  const cb = pickerCallback;
   closeModal();
-  if (pickerCallback) { pickerCallback(ex); }
+  if (cb) { cb(ex); }
 }
 
 async function pickerCreate() {
   const name = document.getElementById("new-ex-name").value.trim();
   if (!name) { toast("Name required"); return; }
   const muscleGroup = document.getElementById("new-ex-muscle").value.trim();
-  const id = await db.exercises.save({ name, muscleGroup });
-  const ex = await db.exercises.get(id);
-  closeModal();
-  if (pickerCallback) { pickerCallback(ex); }
+  try {
+    const id = await db.exercises.save({ name, muscleGroup });
+    const ex = await db.exercises.get(id);
+    const cb = pickerCallback;
+    closeModal();
+    if (cb) { cb(ex); }
+  } catch (err) {
+    toast("Error saving exercise: " + err.message);
+  }
 }
 
 // ─── Session Log ──────────────────────────────────────────────────────────────
