@@ -73,7 +73,8 @@ function renderView() {
   case "routines": hdr.textContent = "Routines";  renderRoutines(main); break;
   case "log":      hdr.textContent = "History";   renderLog(main);      break;
   case "settings": hdr.textContent = "Settings";  renderSettings(main); break;
-  case "exercise-history": hdr.textContent = "Progress"; renderExerciseHistory(main); break;
+  case "exercise-history": hdr.textContent = "Progress";    renderExerciseHistory(main); break;
+  case "edit-session":     hdr.textContent = "Edit Workout"; renderEditSession(main);     break;
   }
 }
 
@@ -687,7 +688,11 @@ async function renderLog(el) {
           <div style="font-weight:600">${esc(s.routineName || "Workout")}</div>
           <div class="muted" style="font-size:.85rem">${date} · ${doneCount}/${exes.length} exercises</div>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="app.viewSession(${s.id})">View</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-sm" onclick="app.viewSession(${s.id})">View</button>
+          <button class="btn btn-ghost btn-sm" onclick="app.navigateEditSession(${s.id})">Edit</button>
+          <button class="btn btn-danger btn-sm" onclick="app.deleteSession(${s.id})">Delete</button>
+        </div>
       </div>`;
     }
     html += "</div>";
@@ -731,10 +736,102 @@ async function viewSession(sessionId) {
       </div>
       ${e.completed ? "<span class='success-text'>✓</span>" : "<span class='muted'>–</span>"}
     </div>`).join("")}
-    <div style="margin-top:16px">
+    <div style="display:flex;gap:8px;margin-top:16px">
       <button class="btn btn-ghost btn-sm" onclick="app.closeModal()">Close</button>
+      <button class="btn btn-ghost btn-sm" onclick="app.closeModal();app.navigateEditSession(${sessionId})">Edit</button>
+      <button class="btn btn-danger btn-sm" onclick="app.closeModal();app.deleteSession(${sessionId})">Delete</button>
     </div>`;
   backdrop.classList.remove("hidden");
+}
+
+async function deleteSession(sessionId) {
+  if (!confirm("Delete this workout session? This cannot be undone.")) { return; }
+  const exes = await db.sessionExercises.listForSession(sessionId);
+  for (const ex of exes) { await db.sessionExercises.delete(ex.id); }
+  await db.sessions.delete(sessionId);
+  toast("Session deleted");
+  navigate("log");
+}
+
+// ─── Edit Session ─────────────────────────────────────────────────────────────
+
+let editingSessionId = null;
+
+function navigateEditSession(sessionId) {
+  editingSessionId = sessionId;
+  navigate("edit-session");
+}
+
+async function renderEditSession(el) {
+  const session = await db.sessions.get(editingSessionId);
+  const exes = await db.sessionExercises.listForSession(editingSessionId);
+  exes.sort((a, b) => a.orderIndex - b.orderIndex);
+
+  const date = new Date(session.completedAt).toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric", year: "numeric",
+  });
+
+  let html = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <button class="btn btn-ghost btn-sm" onclick="app.navigate('log')">← Back</button>
+      <div>
+        <div style="font-weight:700">${esc(session.routineName || "Workout")}</div>
+        <div class="muted" style="font-size:.85rem">${date}</div>
+      </div>
+    </div>`;
+
+  for (const ex of exes) {
+    html += `<div class="card" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-weight:600">${esc(ex.exerciseName)}</div>
+        <button class="ex-check ${ex.completed ? "done" : ""}" id="se-check-${ex.id}"
+          onclick="app.toggleSessionExercise(${ex.id})">${ex.completed ? "✓" : ""}</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div class="field">
+          <label>Sets</label>
+          <input type="number" id="se-sets-${ex.id}" value="${ex.sets}" min="1">
+        </div>
+        <div class="field">
+          <label>Reps</label>
+          <input type="number" id="se-reps-${ex.id}" value="${ex.reps}" min="1">
+        </div>
+        <div class="field">
+          <label>Weight (lbs)</label>
+          <input type="number" id="se-weight-${ex.id}" value="${ex.weight}" min="0" step="2.5">
+        </div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="app.saveSessionExerciseEdit(${ex.id})">Save</button>
+    </div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+async function toggleSessionExercise(seId) {
+  try {
+    const se = await db.sessionExercises.get(seId);
+    se.completed = !se.completed;
+    await db.sessionExercises.save(se);
+    const btn = document.getElementById(`se-check-${seId}`);
+    btn.classList.toggle("done", se.completed);
+    btn.textContent = se.completed ? "✓" : "";
+  } catch (err) {
+    toast("Error: " + err.message);
+  }
+}
+
+async function saveSessionExerciseEdit(seId) {
+  try {
+    const se = await db.sessionExercises.get(seId);
+    se.sets   = parseInt(document.getElementById(`se-sets-${seId}`).value, 10)   || se.sets;
+    se.reps   = parseInt(document.getElementById(`se-reps-${seId}`).value, 10)   || se.reps;
+    se.weight = parseFloat(document.getElementById(`se-weight-${seId}`).value)   ?? se.weight;
+    await db.sessionExercises.save(se);
+    toast("Saved");
+  } catch (err) {
+    toast("Error: " + err.message);
+  }
 }
 
 // ─── Exercise History ─────────────────────────────────────────────────────────
@@ -1066,6 +1163,10 @@ window.app = {
   pickerCreate,
   closeModal,
   viewSession,
+  deleteSession,
+  navigateEditSession,
+  toggleSessionExercise,
+  saveSessionExerciseEdit,
   showExerciseHistory,
   saveClientId,
   driveSignIn,
