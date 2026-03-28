@@ -10,6 +10,17 @@ const DRIVE_LAST_BACKUP_KEY = "driveLastBackup";
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
+// Wait for the async GIS script to finish loading (up to 5 s).
+function waitForGIS() {
+  return new Promise((resolve) => {
+    if (window.google) { resolve(); return; }
+    const interval = setInterval(() => {
+      if (window.google) { clearInterval(interval); resolve(); }
+    }, 100);
+    setTimeout(() => { clearInterval(interval); resolve(); }, 5000);
+  });
+}
+
 async function boot() {
   await db.openDB();
 
@@ -18,9 +29,16 @@ async function boot() {
   if (savedClientId) {
     drive.setClientId(savedClientId);
     try {
+      await waitForGIS();
       await drive.initDrive();
       // Silently try to refresh the token so we can check Drive on open
-      await drive.silentRefresh();
+      const refreshed = await drive.silentRefresh();
+      if (!refreshed) {
+        // Silent refresh failed — show a reconnect banner
+        localStorage.setItem("driveReconnectNeeded", "1");
+      } else {
+        localStorage.removeItem("driveReconnectNeeded");
+      }
     } catch {
       // not fatal — user can sign in from settings
     }
@@ -93,6 +111,13 @@ async function renderHome(el) {
   const routineList = await db.routines.list();
 
   let html = "";
+
+  if (localStorage.getItem("driveReconnectNeeded") && localStorage.getItem("gClientId")) {
+    html += `<div class="card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <span class="muted" style="font-size:.85rem">Drive disconnected</span>
+      <button class="btn btn-ghost btn-sm" onclick="app.reconnectDrive()">Reconnect</button>
+    </div>`;
+  }
 
   if (activeSession) {
     html += `<div class="card">
@@ -1044,6 +1069,7 @@ async function driveSignIn() {
   try {
     await drive.initDrive();
     await drive.signIn();
+    localStorage.removeItem("driveReconnectNeeded");
     toast("Signed in to Google");
     navigate("settings");
   } catch (err) {
@@ -1051,8 +1077,21 @@ async function driveSignIn() {
   }
 }
 
+async function reconnectDrive() {
+  try {
+    await drive.signIn();
+    localStorage.removeItem("driveReconnectNeeded");
+    await checkDriveOnOpen();
+    navigate("home");
+  } catch (err) {
+    toast("Reconnect failed: " + err.message);
+  }
+}
+
 function driveSignOut() {
   drive.signOut();
+  localStorage.removeItem("driveReconnectNeeded");
+  localStorage.removeItem(DRIVE_LAST_BACKUP_KEY);
   toast("Signed out");
   navigate("settings");
 }
@@ -1223,6 +1262,7 @@ window.app = {
   showExerciseHistory,
   saveClientId,
   driveSignIn,
+  reconnectDrive,
   driveSignOut,
   driveBackup,
   driveRestore,
