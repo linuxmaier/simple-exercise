@@ -400,16 +400,12 @@ async function renderRoutines(el) {
                   <div>${esc(e.exerciseName)}</div>
                   <div class="muted" style="font-size:.8rem">${e.defaultSets}×${e.defaultReps} @ ${e.defaultWeight} lbs</div>
                 </div>
-                <div style="display:flex;gap:6px;flex-shrink:0">
-                  <button class="btn btn-ghost btn-sm" onclick="app.showRoutineExerciseModal(${e.id})">Edit</button>
-                  <button class="btn btn-danger btn-sm" onclick="app.removeRoutineExercise(${e.id})">✕</button>
-                </div>
+                <button class="menu-btn" onclick="app.routineExerciseMenu(${e.id},'${esc(e.exerciseName)}')">⋮</button>
               </div>`).join("")}
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;justify-content:space-between;align-items:center">
             <button class="btn btn-ghost btn-sm" onclick="app.showAddExerciseToRoutine(${r.id})">+ Add Exercise</button>
-            <button class="btn btn-ghost btn-sm" onclick="app.showRoutineModal(${r.id})">Edit Routine</button>
-            <button class="btn btn-danger btn-sm" onclick="app.deleteRoutine(${r.id})">Delete</button>
+            <button class="menu-btn" onclick="app.routineMenu(${r.id},'${esc(r.name)}')">⋮</button>
           </div>
         </div>
       </div>`;
@@ -434,10 +430,7 @@ async function renderRoutines(el) {
           ${e.muscleGroup ? `<div class="muted" style="font-size:.8rem">${esc(e.muscleGroup)}</div>` : ""}
           ${e.notes ? `<div class="muted" style="font-size:.8rem;margin-top:2px">${esc(e.notes)}</div>` : ""}
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost btn-sm" onclick="app.showExerciseModal(${e.id})">Edit</button>
-          <button class="btn btn-danger btn-sm" onclick="app.deleteExercise(${e.id})">Delete</button>
-        </div>
+        <button class="menu-btn" onclick="app.exerciseMenu(${e.id},'${esc(e.name)}')">⋮</button>
       </div>`;
     }
     html += "</div>";
@@ -588,6 +581,29 @@ async function removeRoutineExercise(routineExerciseId) {
   if (!confirm("Remove this exercise from the routine?")) { return; }
   await db.routineExercises.delete(routineExerciseId);
   navigate("routines");
+}
+
+// ─── Context menus ───────────────────────────────────────────────────────────
+
+function routineMenu(routineId, name) {
+  showActionMenu(name, [
+    { label: "Edit Routine", handler: () => showRoutineModal(routineId) },
+    { label: "Delete Routine", danger: true, handler: () => deleteRoutine(routineId) },
+  ]);
+}
+
+function routineExerciseMenu(routineExerciseId, name) {
+  showActionMenu(name, [
+    { label: "Edit Defaults", handler: () => showRoutineExerciseModal(routineExerciseId) },
+    { label: "Remove from Routine", danger: true, handler: () => removeRoutineExercise(routineExerciseId) },
+  ]);
+}
+
+function exerciseMenu(exerciseId, name) {
+  showActionMenu(name, [
+    { label: "Edit Exercise", handler: () => showExerciseModal(exerciseId) },
+    { label: "Delete Exercise", danger: true, handler: () => deleteExercise(exerciseId) },
+  ]);
 }
 
 // Add exercise to a routine
@@ -1199,6 +1215,31 @@ async function importJSON(input) {
 
 // ─── Modal helpers ────────────────────────────────────────────────────────────
 
+// Show a bottom-sheet action menu.
+// actions: [{ label, handler, danger }]
+function showActionMenu(title, actions) {
+  const modal = document.getElementById("modal");
+  const backdrop = document.getElementById("modal-backdrop");
+
+  const items = actions.map((a) =>
+    `<button class="action-menu-item${a.danger ? " danger" : ""}" onclick="app._menuAction(${actions.indexOf(a)})">${esc(a.label)}</button>`
+  ).join("");
+
+  modal.innerHTML = `
+    <div class="muted" style="font-size:.85rem;margin-bottom:12px">${esc(title)}</div>
+    ${items}
+    <button class="action-menu-item" onclick="app.closeModal()" style="margin-top:4px;color:var(--muted)">Cancel</button>`;
+
+  window._pendingMenuActions = actions;
+  backdrop.classList.remove("hidden");
+}
+
+function _menuAction(index) {
+  const action = window._pendingMenuActions[index];
+  closeModal();
+  if (action) { action.handler(); }
+}
+
 function closeModal() {
   document.getElementById("modal-backdrop").classList.add("hidden");
   pickerCallback = null;
@@ -1242,6 +1283,11 @@ window.app = {
   removeFromSession,
   showAddExerciseToSession,
   toggleRoutine,
+  showActionMenu,
+  _menuAction,
+  routineMenu,
+  routineExerciseMenu,
+  exerciseMenu,
   showRoutineModal,
   showAddExerciseDefaults,
   confirmAddExerciseToRoutine,

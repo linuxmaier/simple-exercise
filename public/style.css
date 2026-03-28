@@ -289,6 +289,37 @@ canvas { max-width: 100%; }
   margin-top: 10px;
 }
 
+/* ── Three-dot menu button ────────────────────────────────────────────────── */
+.menu-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.2rem;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 6px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.menu-btn:active { background: var(--border); }
+
+/* ── Action menu (bottom sheet) ───────────────────────────────────────────── */
+.action-menu-item {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  padding: 14px 0;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+.action-menu-item:last-child { border-bottom: none; }
+.action-menu-item:active { opacity: 0.7; }
+.action-menu-item.danger { color: var(--red); }
+
 .danger-text { color: var(--red); }
 .success-text { color: var(--green); }
 .muted { color: var(--muted); }
