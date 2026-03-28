@@ -6,6 +6,8 @@ import * as drive from "./drive.js";
 let currentView = "home";
 let activeSession = null; // { session, exercises: [sessionExercise & exerciseName] }
 
+const DRIVE_LAST_BACKUP_KEY = "driveLastBackup";
+
 // ─── Boot ────────────────────────────────────────────────────────────────────
 
 async function boot() {
@@ -17,6 +19,8 @@ async function boot() {
     drive.setClientId(savedClientId);
     try {
       await drive.initDrive();
+      // Silently try to refresh the token so we can check Drive on open
+      await drive.silentRefresh();
     } catch {
       // not fatal — user can sign in from settings
     }
@@ -32,6 +36,11 @@ async function boot() {
   const open = allSessions.find((s) => !s.completedAt);
   if (open) {
     activeSession = await loadActiveSession(open.id);
+  }
+
+  // If signed in to Drive, check whether Drive has a newer backup
+  if (drive.isSignedIn()) {
+    await checkDriveOnOpen();
   }
 
   renderNav();
@@ -282,6 +291,7 @@ async function finishWorkout() {
     try {
       const data = await db.exportAll();
       await drive.backupToDrive(data);
+      localStorage.setItem(DRIVE_LAST_BACKUP_KEY, new Date().toISOString());
       toast("Workout saved & backed up to Drive");
     } catch {
       toast("Workout saved (Drive backup failed)");
@@ -1047,10 +1057,52 @@ function driveSignOut() {
   navigate("settings");
 }
 
+// Returns the completedAt timestamp of the most recent local session, or null.
+async function localLastActivityTime() {
+  const all = await db.sessions.list();
+  const completed = all.filter((s) => s.completedAt).map((s) => s.completedAt);
+  return completed.length ? completed.reduce((a, b) => (a > b ? a : b)) : null;
+}
+
+// Called on boot when signed in — prompts restore if Drive is newer than local data.
+async function checkDriveOnOpen() {
+  try {
+    const driveTime = await drive.getDriveModifiedTime();
+    if (!driveTime) { return; } // no backup on Drive yet
+
+    const lastBackup = localStorage.getItem(DRIVE_LAST_BACKUP_KEY);
+    // If Drive was modified after our last known backup from this device, another
+    // device has written to it — offer to restore.
+    if (!lastBackup || driveTime > lastBackup) {
+      const localTime = await localLastActivityTime();
+      // Only prompt if Drive is also newer than our most recent local workout
+      if (!localTime || driveTime > localTime) {
+        const driveDate = new Date(driveTime).toLocaleString();
+        if (confirm(`A newer Drive backup exists (${driveDate}). Restore it now?\n\nChoose Cancel to keep your local data.`)) {
+          await driveRestore();
+        }
+      }
+    }
+  } catch {
+    // Silent — don't block the app if Drive check fails
+  }
+}
+
 async function driveBackup() {
   try {
+    // Warn if Drive has been updated by another device since our last backup
+    const lastBackup = localStorage.getItem(DRIVE_LAST_BACKUP_KEY);
+    const driveTime = await drive.getDriveModifiedTime();
+    if (driveTime && (!lastBackup || driveTime > lastBackup)) {
+      const driveDate = new Date(driveTime).toLocaleString();
+      if (!confirm(`Drive was last updated on ${driveDate}, which may be newer than your local data. Overwrite it anyway?`)) {
+        return;
+      }
+    }
+
     const data = await db.exportAll();
     await drive.backupToDrive(data);
+    localStorage.setItem(DRIVE_LAST_BACKUP_KEY, new Date().toISOString());
     toast("Backed up to Drive");
     navigate("settings");
   } catch (err) {
@@ -1063,6 +1115,7 @@ async function driveRestore() {
   try {
     const data = await drive.restoreFromDrive();
     await db.importAll(data);
+    localStorage.setItem(DRIVE_LAST_BACKUP_KEY, new Date().toISOString());
     activeSession = null;
     toast("Restored from Drive");
     navigate("home");

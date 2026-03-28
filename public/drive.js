@@ -76,6 +76,34 @@ export function signOut() {
   }
 }
 
+// Attempt a silent token refresh (no popup). Resolves true if successful.
+export function silentRefresh() {
+  return new Promise((resolve) => {
+    if (!tokenClient) { resolve(false); return; }
+    tokenClient.callback = (response) => {
+      if (response.error) { resolve(false); return; }
+      accessToken = response.access_token;
+      resolve(true);
+    };
+    try {
+      tokenClient.requestAccessToken({ prompt: "none" });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+// Returns the Drive file's modifiedTime as an ISO string, or null.
+export async function getDriveModifiedTime() {
+  if (!accessToken) { return null; }
+  try {
+    const file = await findBackupFile();
+    return file ? file.modifiedTime : null;
+  } catch {
+    return null;
+  }
+}
+
 // Find the backup file in appDataFolder. Returns file metadata or null.
 async function findBackupFile() {
   const res = await fetch(
