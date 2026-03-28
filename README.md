@@ -2,6 +2,25 @@
 
 A lightweight, mobile-first PWA for tracking workouts. Runs entirely in the browser — no server, no account required. Data lives in your browser's IndexedDB and can be backed up to Google Drive.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/home.png" width="180"></td>
+    <td><img src="docs/screenshots/active.png" width="180"></td>
+    <td><img src="docs/screenshots/routines.png" width="180"></td>
+    <td><img src="docs/screenshots/log.png" width="180"></td>
+  </tr>
+  <tr>
+    <td align="center">Home</td>
+    <td align="center">Active Workout</td>
+    <td align="center">Routines</td>
+    <td align="center">History</td>
+  </tr>
+</table>
+
+---
+
 ## Features
 
 - Define reusable **routines** composed of exercises with default sets, reps, and weight
