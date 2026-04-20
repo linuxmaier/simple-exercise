@@ -133,7 +133,13 @@ Backups are stored in your Google Drive's hidden **App Data** folder — they wo
 
 **Local JSON:**
 - Tap **Download JSON** in Settings to save a backup file to your device
-- Tap **Import JSON** to restore from a previously exported file
+- Tap **Import JSON** to restore from a previously exported file (**destructive** — replaces all local data)
+
+### Importing content (additive)
+
+To add routines, exercises, or health metrics **without** wiping your existing data, use **Import Content** in Settings → Local Backup. It accepts a `simplefit_import 1.0` JSON file. Duplicates (by name, case-insensitive) are skipped automatically.
+
+Need help building a file? See the AI prompt templates in [`docs/ai-prompts/`](./docs/ai-prompts/) — paste one into any AI chat and it'll interview you and output a ready-to-import file. Full format spec is in [`docs/import-format.md`](./docs/import-format.md).
 
 ---
 
