@@ -1547,7 +1547,23 @@ async function renderSettings(el) {
           <button class="btn btn-ghost btn-sm" onclick="app.exportJSON()">Download JSON</button>
           <button class="btn btn-ghost btn-sm" onclick="app.triggerImport()">Import JSON</button>
         </div>
+        <div class="muted" style="font-size:.8rem;margin-top:8px">
+          Backup/restore moves your entire dataset between devices. <strong>Import JSON</strong> replaces all local data with the contents of the file.
+        </div>
         <input type="file" id="import-file" accept=".json" style="display:none" onchange="app.importJSON(this)">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="section-title">App · Import Content</div>
+      <div class="card">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="app.triggerImportContent()">Import Content</button>
+        </div>
+        <div class="muted" style="font-size:.8rem;margin-top:8px">
+          Adds exercises, routines, and metrics from a <code>simplefit_import 1.0</code> file without touching existing data. Duplicates (by name, case-insensitive) are skipped.
+        </div>
+        <input type="file" id="import-content-file" accept=".json" style="display:none" onchange="app.importContent(this)">
       </div>
     </div>
 
@@ -1703,6 +1719,273 @@ async function importJSON(input) {
   } catch (err) {
     toast("Import failed: " + err.message);
   }
+}
+
+// ─── Content import (additive — simplefit_import 1.0) ────────────────────────
+
+function triggerImportContent() {
+  document.getElementById("import-content-file").click();
+}
+
+async function importContent(input) {
+  const file = input.files[0];
+  if (!file) { return; }
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const { ok, errors } = validateImport(data);
+    if (!ok) {
+      if (errors.length > 1) { console.warn("simplefit_import validation errors:", errors); }
+      toast("Import failed: " + errors[0]);
+      return;
+    }
+    const counts = await applyImport(data);
+    const summary = buildSummary(counts);
+    actionToast(`${summary} <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="app.dismissToast()">Dismiss</button>`);
+    navigate(defaultViewForMode(currentMode));
+  } catch (err) {
+    toast("Import failed: " + err.message);
+  } finally {
+    input.value = "";
+  }
+}
+
+function validateImport(data) {
+  const errors = [];
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false, errors: ["File is not a JSON object"] };
+  }
+  if (data.simplefit_import !== "1.0") {
+    errors.push("Missing or unsupported simplefit_import version (expected \"1.0\")");
+  }
+  const validKinds = ["numeric", "dual", "duration"];
+  const validTypes = ["weight", "timed"];
+
+  const exercises = data.exercises;
+  if (exercises !== undefined) {
+    if (!Array.isArray(exercises)) {
+      errors.push("\"exercises\" must be an array");
+    } else {
+      const seen = new Set();
+      exercises.forEach((ex, i) => {
+        if (!ex || typeof ex !== "object") {
+          errors.push(`exercises[${i}] is not an object`);
+          return;
+        }
+        if (typeof ex.name !== "string" || !ex.name.trim()) {
+          errors.push(`exercises[${i}] is missing a non-empty name`);
+          return;
+        }
+        if (ex.type !== undefined && !validTypes.includes(ex.type)) {
+          errors.push(`exercises[${i}] (${ex.name}) has invalid type "${ex.type}"`);
+        }
+        const key = ex.name.trim().toLowerCase();
+        if (seen.has(key)) {
+          errors.push(`Duplicate exercise name within file: "${ex.name}"`);
+        }
+        seen.add(key);
+      });
+    }
+  }
+
+  const routines = data.routines;
+  if (routines !== undefined) {
+    if (!Array.isArray(routines)) {
+      errors.push("\"routines\" must be an array");
+    } else {
+      const seen = new Set();
+      routines.forEach((r, i) => {
+        if (!r || typeof r !== "object") {
+          errors.push(`routines[${i}] is not an object`);
+          return;
+        }
+        if (typeof r.name !== "string" || !r.name.trim()) {
+          errors.push(`routines[${i}] is missing a non-empty name`);
+          return;
+        }
+        if (!Array.isArray(r.exercises) || r.exercises.length === 0) {
+          errors.push(`routines[${i}] (${r.name}) must have a non-empty exercises array`);
+        } else {
+          r.exercises.forEach((entry, j) => {
+            if (!entry || typeof entry !== "object") {
+              errors.push(`routines[${i}].exercises[${j}] is not an object`);
+              return;
+            }
+            if (typeof entry.exerciseName !== "string" || !entry.exerciseName.trim()) {
+              errors.push(`routines[${i}].exercises[${j}] is missing exerciseName`);
+            }
+            ["defaultSets", "defaultReps", "defaultWeight", "defaultDuration"].forEach((f) => {
+              if (entry[f] !== undefined && typeof entry[f] !== "number") {
+                errors.push(`routines[${i}].exercises[${j}] ${f} must be a number`);
+              }
+            });
+          });
+        }
+        const key = r.name.trim().toLowerCase();
+        if (seen.has(key)) {
+          errors.push(`Duplicate routine name within file: "${r.name}"`);
+        }
+        seen.add(key);
+      });
+    }
+  }
+
+  const metrics = data.healthMetrics;
+  if (metrics !== undefined) {
+    if (!Array.isArray(metrics)) {
+      errors.push("\"healthMetrics\" must be an array");
+    } else {
+      const seen = new Set();
+      metrics.forEach((m, i) => {
+        if (!m || typeof m !== "object") {
+          errors.push(`healthMetrics[${i}] is not an object`);
+          return;
+        }
+        if (typeof m.name !== "string" || !m.name.trim()) {
+          errors.push(`healthMetrics[${i}] is missing a non-empty name`);
+          return;
+        }
+        if (!validKinds.includes(m.kind)) {
+          errors.push(`healthMetrics[${i}] (${m.name}) has invalid kind "${m.kind}" (must be numeric, dual, or duration)`);
+        }
+        const key = m.name.trim().toLowerCase();
+        if (seen.has(key)) {
+          errors.push(`Duplicate health metric name within file: "${m.name}"`);
+        }
+        seen.add(key);
+      });
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+async function applyImport(data) {
+  const counts = {
+    addedExercises: 0, skippedExercises: 0,
+    addedRoutines: 0, skippedRoutines: 0,
+    addedMetrics: 0, skippedMetrics: 0,
+  };
+
+  const [existingExercises, existingRoutines, existingMetrics] = await Promise.all([
+    db.exercises.list(),
+    db.routines.list(),
+    db.healthMetrics.list(),
+  ]);
+  const exerciseByLower = new Map(existingExercises.map((e) => [e.name.toLowerCase(), e]));
+  const routineByLower  = new Map(existingRoutines.map((r) => [r.name.toLowerCase(), r]));
+  const metricByLower   = new Map(existingMetrics.map((m) => [m.name.toLowerCase(), m]));
+
+  const exercisesToAdd = [];
+  for (const ex of data.exercises || []) {
+    const key = ex.name.trim().toLowerCase();
+    if (exerciseByLower.has(key)) { counts.skippedExercises++; continue; }
+    exercisesToAdd.push(ex);
+  }
+
+  const metricsToAdd = [];
+  for (const m of data.healthMetrics || []) {
+    const key = m.name.trim().toLowerCase();
+    if (metricByLower.has(key)) { counts.skippedMetrics++; continue; }
+    metricsToAdd.push(m);
+  }
+
+  const routinesToAdd = [];
+  for (const r of data.routines || []) {
+    const key = r.name.trim().toLowerCase();
+    if (routineByLower.has(key)) { counts.skippedRoutines++; continue; }
+    routinesToAdd.push(r);
+  }
+
+  // Cross-reference: every routine-to-add's entries must resolve to an existing exercise
+  // or to one staged for creation. Check before any writes so we abort atomically.
+  const plannedExerciseKeys = new Set(exercisesToAdd.map((e) => e.name.trim().toLowerCase()));
+  for (const r of routinesToAdd) {
+    for (const entry of r.exercises) {
+      const key = entry.exerciseName.trim().toLowerCase();
+      if (!exerciseByLower.has(key) && !plannedExerciseKeys.has(key)) {
+        throw new Error(`Routine "${r.name}" references unknown exercise "${entry.exerciseName}"`);
+      }
+    }
+  }
+
+  // Phase 2: writes in dependency order.
+  for (const ex of exercisesToAdd) {
+    const rec = { name: ex.name.trim() };
+    if (ex.type) { rec.type = ex.type; }
+    if (ex.muscleGroup) { rec.muscleGroup = ex.muscleGroup; }
+    if (ex.notes) { rec.notes = ex.notes; }
+    try {
+      const id = await db.exercises.save(rec);
+      const saved = await db.exercises.get(id);
+      exerciseByLower.set(saved.name.toLowerCase(), saved);
+      counts.addedExercises++;
+    } catch (err) {
+      if (err && err.name === "ConstraintError") {
+        // Race or unpredicted case collision — treat as skip and relink to existing.
+        counts.skippedExercises++;
+        const all = await db.exercises.list();
+        const existing = all.find((e) => e.name.toLowerCase() === rec.name.toLowerCase());
+        if (existing) { exerciseByLower.set(rec.name.toLowerCase(), existing); }
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  for (const r of routinesToAdd) {
+    const routineId = await db.routines.save({ name: r.name.trim(), notes: r.notes || "" });
+    for (let i = 0; i < r.exercises.length; i++) {
+      const entry = r.exercises[i];
+      const exRec = exerciseByLower.get(entry.exerciseName.trim().toLowerCase());
+      const isTimed = (exRec.type || "weight") === "timed";
+      const re = {
+        routineId,
+        exerciseId: exRec.id,
+        exerciseName: exRec.name,
+        defaultSets: typeof entry.defaultSets === "number" ? entry.defaultSets : 3,
+        defaultReps: isTimed ? 0 : (typeof entry.defaultReps === "number" ? entry.defaultReps : 10),
+        defaultWeight: typeof entry.defaultWeight === "number" ? entry.defaultWeight : 0,
+        defaultDuration: isTimed ? (typeof entry.defaultDuration === "number" ? entry.defaultDuration : 60) : null,
+        orderIndex: i,
+      };
+      await db.routineExercises.save(re);
+    }
+    counts.addedRoutines++;
+  }
+
+  for (const m of metricsToAdd) {
+    const rec = { name: m.name.trim(), kind: m.kind };
+    if (m.unit) { rec.unit = m.unit; }
+    await db.healthMetrics.save(rec);
+    counts.addedMetrics++;
+  }
+
+  return counts;
+}
+
+function buildSummary(c) {
+  const added = [];
+  if (c.addedExercises) { added.push(`${c.addedExercises} exercise${c.addedExercises === 1 ? "" : "s"}`); }
+  if (c.addedRoutines)  { added.push(`${c.addedRoutines} routine${c.addedRoutines === 1 ? "" : "s"}`); }
+  if (c.addedMetrics)   { added.push(`${c.addedMetrics} metric${c.addedMetrics === 1 ? "" : "s"}`); }
+
+  const skipped = [];
+  if (c.skippedExercises) { skipped.push(`${c.skippedExercises} exercise${c.skippedExercises === 1 ? "" : "s"}`); }
+  if (c.skippedRoutines)  { skipped.push(`${c.skippedRoutines} routine${c.skippedRoutines === 1 ? "" : "s"}`); }
+  if (c.skippedMetrics)   { skipped.push(`${c.skippedMetrics} metric${c.skippedMetrics === 1 ? "" : "s"}`); }
+
+  let msg;
+  if (added.length === 0 && skipped.length === 0) {
+    msg = "No changes.";
+  } else if (added.length === 0) {
+    msg = `Skipped ${skipped.join(", ")} (already existed).`;
+  } else if (skipped.length === 0) {
+    msg = `Added ${added.join(", ")}.`;
+  } else {
+    msg = `Added ${added.join(", ")}. Skipped ${skipped.join(", ")} (already existed).`;
+  }
+  return esc(msg);
 }
 
 // ─── Modal helpers ────────────────────────────────────────────────────────────
@@ -2233,6 +2516,8 @@ window.app = {
   exportJSON,
   triggerImport,
   importJSON,
+  triggerImportContent,
+  importContent,
   viewMetric,
   metricMenu,
   addReading,

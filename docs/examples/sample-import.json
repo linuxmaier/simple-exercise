@@ -1,0 +1,55 @@
+{
+  "simplefit_import": "1.0",
+  "exercises": [
+    {
+      "name": "Goblet Squat",
+      "muscleGroup": "Legs",
+      "notes": "Hold a dumbbell at chest height; sit down and up, chest tall."
+    },
+    {
+      "name": "Dumbbell Bench Press",
+      "muscleGroup": "Chest",
+      "notes": "Lower to mid-chest, pause briefly, press up without locking elbows hard."
+    },
+    {
+      "name": "One-Arm Dumbbell Row",
+      "muscleGroup": "Back",
+      "notes": "Flat back, drive elbow up and back. 3 sec eccentric."
+    },
+    {
+      "name": "Dead Bug",
+      "muscleGroup": "Core",
+      "notes": "Lower back pinned to floor; opposite arm + leg, slow."
+    },
+    {
+      "name": "Plank",
+      "type": "timed",
+      "muscleGroup": "Core",
+      "notes": "Ribs down, glutes squeezed. Breathe."
+    },
+    {
+      "name": "Farmer's Carry",
+      "type": "timed",
+      "muscleGroup": "Full body",
+      "notes": "Walk with heavy dumbbells, tall posture. Stop at time or grip failure."
+    },
+    {
+      "name": "Romanian Deadlift",
+      "muscleGroup": "Hamstrings",
+      "notes": "Hinge at the hips, soft knees, bar close to legs."
+    }
+  ],
+  "routines": [
+    {
+      "name": "Beginner Full-Body",
+      "notes": "3x/week. Rest 90 sec between sets.",
+      "exercises": [
+        { "exerciseName": "Goblet Squat",          "defaultSets": 3, "defaultReps": 10, "defaultWeight": 20 },
+        { "exerciseName": "Dumbbell Bench Press",  "defaultSets": 3, "defaultReps": 10, "defaultWeight": 25 },
+        { "exerciseName": "One-Arm Dumbbell Row",  "defaultSets": 3, "defaultReps": 10, "defaultWeight": 25 },
+        { "exerciseName": "Dead Bug",              "defaultSets": 3, "defaultReps": 12, "defaultWeight": 0 },
+        { "exerciseName": "Plank",                 "defaultSets": 3, "defaultDuration": 30 }
+      ]
+    }
+  ]
+}

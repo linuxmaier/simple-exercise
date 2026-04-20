@@ -130,6 +130,10 @@ db.importAll(data)  // clears all stores, then restores
 
 **When adding new stores:** update both `exportAll()` and `importAll()` in `db.js` — the store list in each is hardcoded and new stores will silently be excluded from backups otherwise.
 
+### `simplefit_import 1.0` — additive content imports
+
+A separate code path from `exportAll`/`importAll`, implemented in `app.js` (`validateImport`, `applyImport`, `importContent`). Content-import files carry a top-level `"simplefit_import": "1.0"` sentinel and may include any of `exercises`, `routines` (each with a nested `exercises` array whose entries reference exercises by `exerciseName`), and `healthMetrics`. Matching is case-insensitive on `name`; duplicates are skipped, never overwritten. Validation is all-or-nothing — nothing is written if any error is found, and cross-references (a routine entry naming an exercise that isn't in the file or the DB) abort the whole import before any writes. See `docs/import-format.md` for the full spec and `docs/ai-prompts/` for user-facing prompt templates that generate these files.
+
 ## Drive integration (drive.js)
 
 - **Scope:** `https://www.googleapis.com/auth/drive.appdata` (appDataFolder — hidden from user's Drive UI)
