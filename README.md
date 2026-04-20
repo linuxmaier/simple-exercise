@@ -137,9 +137,9 @@ Backups are stored in your Google Drive's hidden **App Data** folder — they wo
 
 ### Importing content (additive)
 
-To add routines, exercises, or health metrics **without** wiping your existing data, use **Import Content** in Settings → Local Backup. It accepts a `simplefit_import 1.0` JSON file. Duplicates (by name, case-insensitive) are skipped automatically.
+To add routines, exercises, or health metrics **without** wiping your existing data, use **Import Content** in Settings → App · Import Content. It accepts a `simplefit_import 1.0` JSON file. Duplicates (by name, case-insensitive) are skipped automatically.
 
-Need help building a file? See the AI prompt templates in [`docs/ai-prompts/`](./docs/ai-prompts/) — paste one into any AI chat and it'll interview you and output a ready-to-import file. Full format spec is in [`docs/import-format.md`](./docs/import-format.md).
+Need help building a file? See the AI prompt templates in [`docs/ai-prompts/`](./docs/ai-prompts/) — paste one into any AI chat and it'll interview you and output a ready-to-import file. For an example of what that conversation may look like, see [`docs/ai-prompts/example-session.md`](./docs/ai-prompts/example-session.md). Full format spec is in [`docs/import-format.md`](./docs/import-format.md).
 
 ---
 
