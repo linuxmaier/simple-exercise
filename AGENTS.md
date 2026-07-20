@@ -74,7 +74,7 @@ DB name: `exercise-tracker`, version 2. All stores use `{ keyPath: "id", autoInc
 |---|---|---|
 | `routines` | id, name, notes, updatedAt | |
 | `exercises` | id, name, muscleGroup, type, notes, updatedAt | unique index on `name`; `type` is `"weight"` (default) or `"timed"` |
-| `routineExercises` | id, routineId, exerciseId, exerciseName, defaultSets, defaultReps, defaultWeight, defaultDuration | join table; `defaultDuration` (seconds) used for timed exercises |
+| `routineExercises` | id, routineId, exerciseId, exerciseName, defaultSets, defaultReps, defaultWeight, defaultDuration, progressionSnoozedAt, progressionSnoozedSessionId, progressionLastPromptedAt | join table; `defaultDuration` (seconds) used for timed exercises; the three `progression*` fields are optional and drive the progressive-overload prompt (see below) |
 | `sessions` | id, routineId, routineName, date, completedAt | open session has no `completedAt` |
 | `sessionExercises` | id, sessionId, exerciseId, exerciseName, type, sets, reps, weight, duration, setsCompleted, completed, routineExerciseId | `setsCompleted` tracks per-set progress (0..sets); `duration` in seconds for timed exercises; `routineExerciseId` links back to routine defaults (null for ad-hoc) |
 
@@ -185,6 +185,33 @@ Web Notifications API is used for timer completion alerts. Permission is request
 ### Update routine defaults prompt
 When a user edits sets/reps/weight/duration inline during a workout, `saveInlineEdit` compares the new values against the routine exercise defaults (via `routineExerciseId`). If they differ, an action toast appears offering to update the routine defaults. This only applies to exercises that came from a routine (not ad-hoc adds).
 
+### Progressive overload
+Two related features, both driven from `routineExercises` records and the session history.
+
+**The prompt.** When `tapSet` fills the last segment of an exercise (the incomplete → complete
+transition only), `checkProgression(ex)` decides whether to offer a weight bump. It fires only for
+`type: "weight"` exercises with a non-zero weight that came from a routine and whose weight still
+matches `defaultWeight`. `progressionStreak()` counts consecutive *most-recent completed* sessions in
+which every set was finished at the current `defaultWeight`; the in-progress session supplies the
+final `+1`, so the modal appears on the third such session (`PROGRESSION_SESSIONS`). It suggests
+`weight + PROGRESSION_INCREMENT` (5 lbs) in an editable field.
+
+- `acceptProgression` writes the new `defaultWeight` and clears the snooze. It deliberately does
+  **not** touch the current session — that weight was actually lifted and stays as logged.
+- `declineProgression` records `progressionSnoozedAt` **and** `progressionSnoozedSessionId`. Both are
+  needed: the streak walk normally compares `completedAt` timestamps, but the session the user
+  declined in is still open (no `completedAt`) at that moment, so it is excluded by id instead.
+  The walk stops at either marker, which is what makes declining wait another three sessions.
+- `progressionLastPromptedAt` prevents a second prompt for the same exercise within one session
+  (e.g. un-tapping and re-tapping the final set).
+
+**The level-up flag.** `isLeveledUp()` returns true when a routine's defaults are now harder than what
+was performed the last time that exercise was completed. It is fully derived — there is no stored
+flag, so it clears itself once a session is logged at the new numbers. `levelUpMapForRoutine(routineId)`
+batches this per routine and feeds `renderHome` (a ▲ on the routine card), `renderRoutines`, and
+`renderWorkout` / `renderExRow`. Styling is `.level-up` (the gold ▲ badge) and `.level-up-meta` (gold
+meta text), backed by the `--gold` custom property.
+
 ### Toast notifications
 `toast(msg)` — 2.5 s auto-dismiss. `actionToast(html)` — HTML-capable toast with interactive buttons, 6 s auto-dismiss, pointer events enabled.
 
@@ -202,7 +229,7 @@ ESLint 9 flat config in `eslint.config.js`. Rules: double quotes, semicolons, 2-
 
 ## Service worker / caching
 
-`sw.js` caches all static assets under `CACHE = "simplefit-v5"`. **Bump the cache name whenever cached assets change** — both when adding new files to the ASSETS array and when you want returning users to pick up bugfixes in cached JS/CSS. Otherwise the old service worker will serve stale files. Google API requests are passed through (not cached).
+`sw.js` caches all static assets under `CACHE = "simplefit-v8"`. **Bump the cache name whenever cached assets change** — both when adding new files to the ASSETS array and when you want returning users to pick up bugfixes in cached JS/CSS. Otherwise the old service worker will serve stale files. Google API requests are passed through (not cached).
 
 ## Deployment
 
