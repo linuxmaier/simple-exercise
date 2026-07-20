@@ -34,6 +34,8 @@ SimpleFit is organized into modes — switch between them using the segmented co
 - **Per-set progress tracking** — a segmented progress bar for each exercise lets you tap to mark individual sets complete
 - **Timed exercise support** — exercises can be weight/reps-based or duration-based (e.g. planks, runs) with an in-app countdown timer that auto-completes the set and fires a system notification when done
 - Edit sets, reps, weight, or duration inline mid-workout, with an option to **update routine defaults** from the new values
+- **Progressive overload prompts** — after three straight sessions where you complete every set of an exercise without adding weight, the app offers to bump the routine default (suggests +5 lbs, editable). Say "Not yet" and it waits another three sessions before asking again
+- **Level-up indicator** — a gold ▲ marks any routine exercise whose sets, reps, weight, or duration has gone up since you last performed it, so a harder session never catches you off guard. It clears itself once you've done the exercise at the new numbers
 - Add exercises on the fly during a session
 - View **exercise history** with a weight-over-time chart
 - Browse a **session log** of past workouts

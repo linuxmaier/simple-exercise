@@ -12,6 +12,11 @@ let viewingMetricId = null; // active metric in health-metric detail view
 const DRIVE_LAST_BACKUP_KEY = "driveLastBackup";
 const CURRENT_MODE_KEY = "currentMode";
 
+// Progressive overload — see "Progressive overload" in AGENTS.md
+const PROGRESSION_SESSIONS  = 3;  // consecutive qualifying sessions before prompting
+const PROGRESSION_INCREMENT = 5;  // lbs to suggest adding
+const LEVEL_UP_BADGE = "<span class=\"level-up\" title=\"Harder than last time\">&#9650;</span>";
+
 // ─── Modes ───────────────────────────────────────────────────────────────────
 
 const MODES = [
@@ -242,17 +247,17 @@ async function renderHome(el) {
   if (routineList.length === 0) {
     html += "<div class=\"empty\">No routines yet. Go to Routines to create one.</div>";
   } else {
-    html += routineList
-      .map(
-        (r) => `<div class="card" style="display:flex;justify-content:space-between;align-items:center">
+    for (const r of routineList) {
+      const levelUps = await levelUpMapForRoutine(r.id);
+      const anyUp = Object.values(levelUps).some(Boolean);
+      html += `<div class="card" style="display:flex;justify-content:space-between;align-items:center">
           <div>
-            <div class="card-title" style="margin:0">${esc(r.name)}</div>
+            <div class="card-title" style="margin:0">${esc(r.name)}${anyUp ? LEVEL_UP_BADGE : ""}</div>
             ${r.notes ? `<div class="muted" style="font-size:.85rem">${esc(r.notes)}</div>` : ""}
           </div>
           <button class="btn btn-primary btn-sm" onclick="app.startWorkout(${r.id})">Start</button>
-        </div>`
-      )
-      .join("");
+        </div>`;
+    }
   }
 
   el.innerHTML = html;
@@ -335,6 +340,7 @@ async function renderWorkout(el) {
 
   const allExercises = await db.exercises.list();
   const notesById = Object.fromEntries(allExercises.map((e) => [e.id, e.notes || ""]));
+  const levelUps = await levelUpMapForRoutine(activeSession.session.routineId);
 
   const hasTimedExercises = exes.some((e) => (e.type || "weight") === "timed");
   const notifBanner = hasTimedExercises && !notificationsEnabled()
@@ -353,7 +359,7 @@ async function renderWorkout(el) {
     <div id="ex-list">`;
 
   for (const ex of exes) {
-    html += renderExRow(ex, notesById[ex.exerciseId] || "");
+    html += renderExRow(ex, notesById[ex.exerciseId] || "", !!levelUps[ex.routineExerciseId]);
   }
 
   html += `</div>
@@ -364,7 +370,7 @@ async function renderWorkout(el) {
   el.innerHTML = html;
 }
 
-function renderExRow(ex, notes = "") {
+function renderExRow(ex, notes = "", leveledUp = false) {
   const type = ex.type || "weight";
   const metaText = formatExMeta(ex);
   const setBar = renderSetBar(ex);
@@ -405,8 +411,8 @@ function renderExRow(ex, notes = "") {
 
   return `<div class="ex-row" id="ex-${ex.id}">
     <div>
-      <div class="ex-name">${esc(ex.exerciseName)}</div>
-      <div class="ex-meta" id="meta-${ex.id}">${metaText}</div>
+      <div class="ex-name">${esc(ex.exerciseName)}${leveledUp ? LEVEL_UP_BADGE : ""}</div>
+      <div class="ex-meta${leveledUp ? " level-up-meta" : ""}" id="meta-${ex.id}">${metaText}</div>
       ${notes ? `<div class="muted" style="font-size:.78rem;margin-top:2px">${esc(notes)}</div>` : ""}
     </div>
     <div class="ex-actions">
@@ -458,6 +464,7 @@ function toggleInlineEdit(exId) {
 async function tapSet(exId, setNum) {
   const ex = activeSession.exercises.find((e) => e.id === exId);
   if (!ex) { return; }
+  const wasComplete = ex.completed;
   ex.setsCompleted = (setNum === ex.setsCompleted) ? setNum - 1 : setNum;
   ex.completed = ex.setsCompleted >= ex.sets;
   await db.sessionExercises.save(ex);
@@ -471,6 +478,11 @@ async function tapSet(exId, setNum) {
 
   // Update header done count
   updateWorkoutDoneCount();
+
+  // Offer a weight bump if this exercise has plateaued
+  if (!wasComplete && ex.completed) {
+    await checkProgression(ex);
+  }
 }
 
 function updateWorkoutDoneCount() {
@@ -675,6 +687,157 @@ function dismissToast() {
   if (toastTimer) { clearTimeout(toastTimer); }
 }
 
+// ─── Progressive overload ───────────────────────────────────────────────────
+
+// Rows from `db.sessionExercises.listForExercise()` that belong to `re`, joined to their
+// session and sorted most-recent-completed first. Open (in-progress) sessions are excluded —
+// the caller accounts for the current session separately.
+function completedHistoryFor(re, exerciseHistory, sessionsById) {
+  return exerciseHistory
+    .filter((se) => se.routineExerciseId === re.id)
+    .map((se) => ({ se, session: sessionsById[se.sessionId] }))
+    .filter((row) => row.session && row.session.completedAt)
+    .sort((a, b) => b.session.completedAt.localeCompare(a.session.completedAt));
+}
+
+// Number of consecutive most-recent completed sessions in which every set of this exercise was
+// finished at the routine's current default weight. The walk stops at the session in which the
+// user last declined a prompt (and at anything completed before it), so declining restarts the
+// count. The declined session is matched by id as well as timestamp because it is still
+// in progress — and therefore has no completedAt — at the moment the user says "Not yet".
+function progressionStreak(re, exerciseHistory, sessionsById) {
+  const snoozedAt = re.progressionSnoozedAt ?? null;
+  const snoozedSessionId = re.progressionSnoozedSessionId ?? null;
+  let streak = 0;
+  for (const { se, session } of completedHistoryFor(re, exerciseHistory, sessionsById)) {
+    if (snoozedSessionId && session.id === snoozedSessionId) { break; }
+    if (snoozedAt && session.completedAt <= snoozedAt) { break; }
+    if (se.setsCompleted >= se.sets && se.weight === re.defaultWeight) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+// True when the routine defaults are now harder than what was actually performed the last time
+// this exercise was completed. Derived, so it clears itself once a session is logged at the new
+// numbers. A never-performed exercise is not "leveled up".
+function isLeveledUp(re, exerciseHistory, sessionsById) {
+  const [last] = completedHistoryFor(re, exerciseHistory, sessionsById);
+  if (!last) { return false; }
+  const se = last.se;
+  if ((se.type || "weight") === "timed") {
+    return (re.defaultDuration || 60) > (se.duration || 0)
+      || re.defaultWeight > se.weight
+      || re.defaultSets > se.sets;
+  }
+  return re.defaultWeight > se.weight
+    || re.defaultReps > se.reps
+    || re.defaultSets > se.sets;
+}
+
+// { [routineExerciseId]: bool } for every exercise in a routine.
+async function levelUpMapForRoutine(routineId) {
+  const map = {};
+  if (!routineId) { return map; }
+  const [routineExList, allSessions] = await Promise.all([
+    db.routineExercises.listForRoutine(routineId),
+    db.sessions.list(),
+  ]);
+  const sessionsById = Object.fromEntries(allSessions.map((s) => [s.id, s]));
+  for (const re of routineExList) {
+    const history = await db.sessionExercises.listForExercise(re.exerciseId);
+    map[re.id] = isLeveledUp(re, history, sessionsById);
+  }
+  return map;
+}
+
+// Fired from tapSet when an exercise transitions to fully complete.
+async function checkProgression(ex) {
+  if (!ex.routineExerciseId) { return; }
+  if ((ex.type || "weight") !== "weight") { return; }
+  if (!ex.weight || ex.weight <= 0) { return; }
+  // Don't stack on top of an open modal (e.g. the user is mid-edit somewhere else)
+  if (!document.getElementById("modal-backdrop").classList.contains("hidden")) { return; }
+
+  try {
+    const re = await db.routineExercises.get(ex.routineExerciseId);
+    if (!re || ex.weight !== re.defaultWeight) { return; }
+    // Only prompt once per exercise per session
+    const sessionStart = activeSession?.session?.date;
+    if (re.progressionLastPromptedAt && sessionStart
+        && re.progressionLastPromptedAt.slice(0, 10) >= sessionStart) { return; }
+
+    const [history, allSessions] = await Promise.all([
+      db.sessionExercises.listForExercise(ex.exerciseId),
+      db.sessions.list(),
+    ]);
+    const sessionsById = Object.fromEntries(allSessions.map((s) => [s.id, s]));
+    // The in-progress session isn't completed yet, so it contributes the +1 itself.
+    const streak = progressionStreak(re, history, sessionsById) + 1;
+    if (streak < PROGRESSION_SESSIONS) { return; }
+
+    re.progressionLastPromptedAt = new Date().toISOString();
+    await db.routineExercises.save(re);
+    showProgressionModal(ex, re, streak);
+  } catch { /* routine exercise may have been deleted mid-session */ }
+}
+
+function showProgressionModal(ex, re, streak) {
+  const modal = document.getElementById("modal");
+  const backdrop = document.getElementById("modal-backdrop");
+  const suggested = ex.weight + PROGRESSION_INCREMENT;
+  modal.innerHTML = `
+    <div class="modal-title">Level up ${esc(ex.exerciseName)}?</div>
+    <p class="muted" style="margin-bottom:12px">You've completed all sets at ${ex.weight} lbs for ${streak} sessions.</p>
+    <div class="field">
+      <label>Next time use (lbs)</label>
+      <input type="number" id="m-prog-weight" value="${suggested}" min="0" step="2.5">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="app.acceptProgression(${re.id})">Update</button>
+      <button class="btn btn-ghost" onclick="app.declineProgression(${re.id})">Not yet</button>
+    </div>`;
+  backdrop.classList.remove("hidden");
+}
+
+// Raises the routine default only — the current session keeps the weight actually lifted.
+async function acceptProgression(routineExId) {
+  const weight = parseFloat(document.getElementById("m-prog-weight").value);
+  if (!Number.isFinite(weight) || weight <= 0) {
+    toast("Enter a valid weight");
+    return;
+  }
+  try {
+    const re = await db.routineExercises.get(routineExId);
+    if (!re) { closeModal(); return; }
+    re.defaultWeight = weight;
+    re.progressionSnoozedAt = null;
+    re.progressionSnoozedSessionId = null;
+    await db.routineExercises.save(re);
+    closeModal();
+    toast(`Next time: ${weight} lbs`);
+  } catch (err) {
+    toast("Error: " + err.message);
+  }
+}
+
+// Snoozing excludes every session up to now from the streak, so it takes another
+// PROGRESSION_SESSIONS qualifying sessions before we ask again.
+async function declineProgression(routineExId) {
+  try {
+    const re = await db.routineExercises.get(routineExId);
+    if (re) {
+      re.progressionSnoozedAt = new Date().toISOString();
+      re.progressionSnoozedSessionId = activeSession?.session?.id ?? null;
+      await db.routineExercises.save(re);
+    }
+  } catch { /* best-effort */ }
+  closeModal();
+}
+
 async function finishWorkout() {
   if (!activeSession) { return; }
   const total = activeSession.exercises.length;
@@ -763,6 +926,7 @@ async function renderRoutines(el) {
       const exes = await db.routineExercises.listForRoutine(r.id);
       exes.sort((a, b) => a.orderIndex - b.orderIndex);
       const open = expandedRoutines.has(r.id);
+      const levelUps = await levelUpMapForRoutine(r.id);
       html += `<div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;${open ? "margin-bottom:var(--gap)" : ""}" id="routine-header-${r.id}"
              onclick="app.toggleRoutine(${r.id})">
@@ -787,11 +951,12 @@ async function renderRoutines(el) {
       const meta = exType === "timed"
         ? `${e.defaultSets} × ${formatDuration(e.defaultDuration || 60)}${e.defaultWeight ? ` @ ${e.defaultWeight} lbs` : ""}`
         : `${e.defaultSets}×${e.defaultReps} @ ${e.defaultWeight} lbs`;
+      const up = !!levelUps[e.id];
       return `<div style="border-bottom:1px solid var(--border)">
                 <div style="padding:8px 0;display:flex;justify-content:space-between;align-items:center;gap:8px">
                   <div>
-                    <div>${esc(e.exerciseName)}</div>
-                    <div class="muted" style="font-size:.8rem">${meta}</div>
+                    <div>${esc(e.exerciseName)}${up ? LEVEL_UP_BADGE : ""}</div>
+                    <div class="muted${up ? " level-up-meta" : ""}" style="font-size:.8rem">${meta}</div>
                   </div>
                   <button class="menu-btn" onclick="app.routineExerciseMenu(${e.id})">⋮</button>
                 </div>
@@ -2481,6 +2646,8 @@ window.app = {
   startTimer,
   stopTimer,
   updateDefaults,
+  acceptProgression,
+  declineProgression,
   dismissToast,
   toggleRoutine,
   routineMenu,
